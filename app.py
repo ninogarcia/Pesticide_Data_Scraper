@@ -5,6 +5,7 @@ import os
 import subprocess
 import asyncio
 from playwright.async_api import async_playwright
+import logging
 
 # Install Playwright and its dependencies
 os.system('playwright install')
