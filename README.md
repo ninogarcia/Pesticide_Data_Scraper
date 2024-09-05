@@ -31,6 +31,7 @@ Created by: Niño Garcia
 
 ## Usage
 1. Go to https://pesticide-registration-scraper-by-nino.streamlit.app/
+  ![image](https://github.com/user-attachments/assets/40c3e32f-476b-4ebb-be7b-f89c36a72e8e)
 2. Enter the name of an active ingredient in the search box (exampe: Dimethoate).
 3. Click the "Search" button to initiate the scraping process.
 4. Wait for the results to be displayed in the table.
