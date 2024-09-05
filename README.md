@@ -26,36 +26,15 @@ Created by: Niño Garcia
 
 - Python
 - Streamlit
-- Selenium
+- Playwright
 - Pandas
 
-## Setup and Installation
-
-1. Clone this repository:
-   ```
-   git clone https://github.com/ninogarcia/pesticide-registration-scraper.git
-   cd pesticide-registration-scraper
-   ```
-
-2. Install the required dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-
-3. Install the appropriate WebDriver for Selenium:
-   - For Chrome: Download ChromeDriver from the [official website](https://sites.google.com/a/chromium.org/chromedriver/downloads) and add it to your system PATH.
-
-4. Run the Streamlit app:
-   ```
-   streamlit run app.py
-   ```
-
 ## Usage
-
-1. Enter the name of an active ingredient in the search box.
-2. Click the "Search" button to initiate the scraping process.
-3. Wait for the results to be displayed in the table.
-4. View additional information about the scraper creator in the sidebar.
+1. Go to https://pesticide-registration-scraper-by-nino.streamlit.app/
+2. Enter the name of an active ingredient in the search box (exampe: Dimethoate).
+3. Click the "Search" button to initiate the scraping process.
+4. Wait for the results to be displayed in the table.
+5. View additional information about the scraper creator in the sidebar.
 
 ## Important Notes
 
