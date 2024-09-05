@@ -3,6 +3,10 @@ import pandas as pd
 import asyncio
 from playwright.async_api import async_playwright
 import logging
+import os
+# Install Playwright and its dependencies
+os.system('playwright install')
+os.system('playwright install-deps')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
