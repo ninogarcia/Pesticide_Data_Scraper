@@ -56,7 +56,7 @@ class CustomCrawler:
             await page.click(link_selector)
             await page.wait_for_selector("#jbox-iframe")
             
-            frame = page.frame_locator("#jbox-iframe")
+            frame = page.frame_locator("#jbox-iframe").first
             
             data = {}
             data['registered_number'] = await self.get_table_data(frame, "Registered number：")
@@ -81,7 +81,7 @@ class CustomCrawler:
                     })
             data['active_ingredients'] = active_ingredients
             
-            await page.click("#jbox > table > tbody > tr:nth-child(2) > td:nth-child(2) > div > a")
+            await page.click("#jbox-close")
             await page.wait_for_selector("#jbox-iframe", state="hidden")
             
             return data
@@ -122,31 +122,28 @@ class CustomCrawler:
         try:
             logging.info("Attempting to navigate to the next page")
             
-            pagination = await page.wait_for_selector("body > div.web_ser_body_right_main_search > div", timeout=10000)
-            logging.info("Pagination element found")
-            
             next_page_link = page.locator("xpath=.//a[contains(text(), '下一页')]")
-            if await next_page_link.count() == 0 or "disabled" in await next_page_link.get_attribute("class"):
+            if await next_page_link.count() == 0 or await next_page_link.is_disabled():
                 logging.info("Next page link is not available or disabled. This is the last page.")
                 return False
             
             logging.info("Next page link found")
             
-            current_page = int(await page.locator("xpath=//li[@class='active']/a").inner_text())
-            logging.info(f"Current page: {current_page}")
+            current_page = self.current_page
             
             await next_page_link.click()
             logging.info("Clicked next page link")
             
-            await page.wait_for_function(
-                f"parseInt(document.querySelector('li.active a').textContent) > {current_page}",
-                timeout=20000
-            )
-            logging.info("Page change detected")
+            await page.wait_for_load_state('networkidle')
             
-            self.current_page += 1
-            logging.info(f"Successfully moved to page {self.current_page}")
-            return True
+            new_page_number = await page.locator("xpath=//li[@class='active']/a").inner_text()
+            if int(new_page_number) > current_page:
+                self.current_page = int(new_page_number)
+                logging.info(f"Successfully moved to page {self.current_page}")
+                return True
+            else:
+                logging.info("Page did not change. This might be the last page.")
+                return False
         
         except Exception as e:
             logging.error(f"Unexpected error in next_page function: {str(e)}")
