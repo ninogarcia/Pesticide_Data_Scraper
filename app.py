@@ -3,6 +3,8 @@ import pandas as pd
 from crawler import main as run_crawler
 import os
 import subprocess
+import asyncio
+from playwright.async_api import async_playwright
 
 # Install Playwright and its dependencies
 os.system('playwright install')
@@ -33,7 +35,7 @@ if st.button("Search"):
             status_text.text(message)
         
         try:
-            results = run_crawler(search_term, progress_callback=update_progress)
+            results = asyncio.run_crawler(search_term, progress_callback=update_progress)
             
             if results:
                 st.success(f"Found {len(results)} results")
