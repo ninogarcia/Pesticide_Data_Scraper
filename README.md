@@ -69,7 +69,3 @@ For any questions or collaborations, please reach out to Niño Garcia:
 
 - LinkedIn: [https://www.linkedin.com/in/ninogarci/](https://www.linkedin.com/in/ninogarci/)
 - Upwork: [https://www.upwork.com/freelancers/~01dd78612ac234aadd](https://www.upwork.com/freelancers/~01dd78612ac234aadd)
-
-## License
-
-[Specify your license here, e.g., MIT, GPL, etc.]
