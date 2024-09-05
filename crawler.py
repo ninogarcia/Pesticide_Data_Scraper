@@ -66,15 +66,15 @@ class CustomCrawler:
             data['formulation'] = await self.get_table_data(frame, "Formulation：")
             data['registration_certificate_holder'] = await self.get_table_data(frame, "Registration certificate holder：")
             data['remark'] = await self.get_table_data(frame, "Remark：")
-
+    
             active_ingredients = []
-            rows = await frame.locator("table:nth-of-type(2) tr").all()
+            rows = await frame.locator("table:nth-of-type(2) tr").all()  # Make sure to await this
             for row in rows[2:]:
-                cols = await row.locator("td").all()
+                cols = await row.locator("td").all()  # Await locator results
                 if len(cols) == 2:
                     active_ingredients.append({
-                        "ingredient": await cols[0].inner_text().strip(),
-                        "content": await cols[1].inner_text().strip()
+                        "ingredient": await cols[0].inner_text().strip(),  # Await inner_text()
+                        "content": await cols[1].inner_text().strip()  # Await inner_text()
                     })
             data['active_ingredients'] = active_ingredients
             
@@ -85,6 +85,7 @@ class CustomCrawler:
         except Exception as e:
             logging.error(f"Error scraping item: {str(e)}")
             return None
+
 
     async def get_table_data(self, frame, label):
         try:
