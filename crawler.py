@@ -1,6 +1,7 @@
 import asyncio
 from playwright.async_api import async_playwright
 import logging
+import json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -11,34 +12,28 @@ class CustomCrawler:
         self.total_items_scraped = 0
         self.current_page = 1
 
-    async def run(self, progress_callback=None):
+    async def run(self):
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
-            try:
-                await page.goto(self.base_url)
-                await self.search_and_submit(page)
-
-                all_data = []
-                while True:
-                    items_scraped, page_data = await self.scrape_page(page)
-                    all_data.extend(page_data)
-                    self.total_items_scraped += items_scraped
-
-                    if progress_callback:
-                        progress_callback(f"Scraped page {self.current_page}, total items: {self.total_items_scraped}")
-
-                    if not await self.next_page(page):
-                        logging.info("No more pages. Scraping completed.")
-                        break
-
-                logging.info(f"Total items scraped across all pages: {self.total_items_scraped}")
-                return all_data
-            except Exception as e:
-                logging.error(f"An error occurred during crawling: {str(e)}")
-                return []
-            finally:
-                await browser.close()
+            await page.goto(self.base_url)
+            await self.search_and_submit(page)
+            
+            all_data = []
+            while True:
+                items_scraped, page_data = await self.scrape_page(page)
+                all_data.extend(page_data)
+                self.total_items_scraped += items_scraped
+                
+                print(json.dumps({"progress": f"Scraped page {self.current_page}, total items: {self.total_items_scraped}"}))
+                
+                if not await self.next_page(page):
+                    logging.info("No more pages. Scraping completed.")
+                    break
+            
+            logging.info(f"Total items scraped across all pages: {self.total_items_scraped}")
+            await browser.close()
+            return all_data
 
     async def search_and_submit(self, page):
         try:
@@ -54,8 +49,8 @@ class CustomCrawler:
             await page.click(link_selector)
             await page.wait_for_selector("#jbox-iframe")
             
-            frame = await page.frame_locator("#jbox-iframe").first()
-
+            frame = page.frame_locator("#jbox-iframe").first
+            
             data = {}
             data['registered_number'] = await self.get_table_data(frame, "Registered number：")
             data['first_prove'] = await self.get_table_data(frame, "FirstProve：")
@@ -67,19 +62,21 @@ class CustomCrawler:
             data['remark'] = await self.get_table_data(frame, "Remark：")
 
             active_ingredients = []
-            rows = await frame.locator("table:nth-of-type(2) tr").all()[2:]
-            for row in rows:
+            rows = await frame.locator("table:nth-of-type(2) tr").all()
+            for row in rows[2:]:
                 cols = await row.locator("td").all()
                 if len(cols) == 2:
+                    ingredient = await cols[0].inner_text()
+                    content = await cols[1].inner_text()
                     active_ingredients.append({
-                        "ingredient": await cols[0].inner_text(),
-                        "content": await cols[1].inner_text()
+                        "ingredient": ingredient.strip(),
+                        "content": content.strip()
                     })
             data['active_ingredients'] = active_ingredients
-
-            await page.click("#jbox > table > tbody > tr:nth-child(2) > td:nth-child(2) > div > a")
+            
+            await page.click("#jbox-close")
             await page.wait_for_selector("#jbox-iframe", state="hidden")
-
+            
             return data
         except Exception as e:
             logging.error(f"Error scraping item: {str(e)}")
@@ -87,7 +84,8 @@ class CustomCrawler:
 
     async def get_table_data(self, frame, label):
         try:
-            return (await frame.locator(f"//td[contains(text(), '{label}')]/following-sibling::td").inner_text()).strip()
+            element = frame.locator(f"//td[contains(text(), '{label}')]/following-sibling::td")
+            return await element.inner_text()
         except:
             return ""
 
@@ -96,52 +94,60 @@ class CustomCrawler:
         page_data = []
         for i in range(2, 22):
             link_selector = f"#tab > tbody > tr:nth-child({i}) > td.t3 > span > a"
-            if await page.is_visible(link_selector):
-                logging.info(f"Scraping item {i-1}")
-                data = await self.scrape_item(page, link_selector)
-                if data:
-                    page_data.append(data)
-                    items_scraped += 1
-                else:
-                    logging.warning(f"Failed to scrape item {i-1}")
-            else:
+            try:
+                await page.wait_for_selector(link_selector, timeout=5000)
+            except:
                 logging.info(f"No more items found after item {i-2}")
                 break
 
+            logging.info(f"Scraping item {i-1}")
+            data = await self.scrape_item(page, link_selector)
+            if data:
+                page_data.append(data)
+                items_scraped += 1
+            else:
+                logging.warning(f"Failed to scrape item {i-1}")
+        
         logging.info(f"Total items scraped on this page: {items_scraped}")
         return items_scraped, page_data
 
     async def next_page(self, page):
         try:
             logging.info("Attempting to navigate to the next page")
-
-            next_page_link = await page.locator("//a[contains(text(), '下一页')]").first
-            if not next_page_link or "disabled" in (await next_page_link.get_attribute("class")):
+            
+            next_page_link = page.locator("xpath=.//a[contains(text(), '下一页')]")
+            if await next_page_link.count() == 0 or await next_page_link.is_disabled():
                 logging.info("Next page link is not available or disabled. This is the last page.")
                 return False
-
-            current_page = int(await page.locator("//li[@class='active']/a").inner_text())
-            logging.info(f"Current page: {current_page}")
-
+            
+            logging.info("Next page link found")
+            
+            current_page = self.current_page
+            
             await next_page_link.click()
+            logging.info("Clicked next page link")
+            
             await page.wait_for_load_state('networkidle')
-
-            new_page = int(await page.locator("//li[@class='active']/a").inner_text())
-            if new_page > current_page:
-                self.current_page += 1
+            
+            new_page_number = await page.locator("xpath=//li[@class='active']/a").inner_text()
+            if int(new_page_number) > current_page:
+                self.current_page = int(new_page_number)
                 logging.info(f"Successfully moved to page {self.current_page}")
                 return True
             else:
                 logging.info("Page did not change. This might be the last page.")
                 return False
-
+        
         except Exception as e:
             logging.error(f"Unexpected error in next_page function: {str(e)}")
             return False
 
-async def main(search_term, progress_callback=None):
+async def main(search_term):
     crawler = CustomCrawler(search_term)
-    return await crawler.run(progress_callback)
+    return await crawler.run()
 
 if __name__ == "__main__":
-    asyncio.run(main('Dimethoate'))
+    import sys
+    search_term = sys.argv[1]
+    results = asyncio.run(main(search_term))
+    print(json.dumps(results))
