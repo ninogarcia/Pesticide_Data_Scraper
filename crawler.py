@@ -1,10 +1,4 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
+from playwright.sync_api import sync_playwright
 import time
 import logging
 
@@ -15,176 +9,131 @@ class CustomCrawler:
         self.search_term = search_term
         self.base_url = 'https://www.icama.cn/BasicdataSystem/pesticideRegistrationEn/queryselect_en.do'
         self.total_items_scraped = 0
-        self.driver = None
         self.current_page = 1
 
-    def setup_driver(self):
-        options = webdriver.ChromeOptions()
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=service, options=options)
-        self.driver.maximize_window()
-
     def run(self, progress_callback=None):
-        self.setup_driver()
-        try:
-            self.driver.get(self.base_url)
-            self.search_and_submit()
-            
-            all_data = []
-            while True:
-                items_scraped, page_data = self.scrape_page()
-                all_data.extend(page_data)
-                self.total_items_scraped += items_scraped
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            try:
+                page.goto(self.base_url)
+                self.search_and_submit(page)
                 
-                if progress_callback:
-                    progress_callback(f"Scraped page {self.current_page}, total items: {self.total_items_scraped}")
+                all_data = []
+                while True:
+                    items_scraped, page_data = self.scrape_page(page)
+                    all_data.extend(page_data)
+                    self.total_items_scraped += items_scraped
+                    
+                    if progress_callback:
+                        progress_callback(f"Scraped page {self.current_page}, total items: {self.total_items_scraped}")
+                    
+                    if not self.next_page(page):
+                        logging.info("No more pages. Scraping completed.")
+                        break
                 
-                if not self.next_page():
-                    logging.info("No more pages. Scraping completed.")
-                    break
-            
-            logging.info(f"Total items scraped across all pages: {self.total_items_scraped}")
-            return all_data
-        except Exception as e:
-            logging.error(f"An error occurred during crawling: {str(e)}")
-            return []
-        finally:
-            if self.driver:
-                self.driver.quit()
+                logging.info(f"Total items scraped across all pages: {self.total_items_scraped}")
+                return all_data
+            except Exception as e:
+                logging.error(f"An error occurred during crawling: {str(e)}")
+                return []
+            finally:
+                browser.close()
 
-    def search_and_submit(self):
+    def search_and_submit(self, page):
         try:
-            search_input = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "#searchForm > div.search_table > table > tbody > tr:nth-child(3) > td.t1 > input[type=text]"))
-            )
-            search_input.send_keys(self.search_term)
-            
-            submit_button = self.driver.find_element(By.CSS_SELECTOR, "#btnSubmit")
-            submit_button.click()
+            page.fill("#searchForm > div.search_table > table > tbody > tr:nth-child(3) > td.t1 > input[type=text]", self.search_term)
+            page.click("#btnSubmit")
+            page.wait_for_load_state('networkidle')
         except Exception as e:
             logging.error(f"Error in search_and_submit: {str(e)}")
             raise
 
-    def scrape_item(self, link_selector):
+    def scrape_item(self, page, link_selector):
         try:
-            link = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, link_selector))
-            )
-            self.driver.execute_script("arguments[0].click();", link)
+            page.click(link_selector)
+            page.wait_for_selector("#jbox-iframe")
             
-            iframe = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "#jbox-iframe"))
-            )
-            self.driver.switch_to.frame(iframe)
+            frame = page.frame_locator("#jbox-iframe").first
             
             data = {}
-            data['registered_number'] = self.get_table_data("Registered number：")
-            data['first_prove'] = self.get_table_data("FirstProve：")
-            data['period'] = self.get_table_data("Period：")
-            data['product_name'] = self.get_table_data("ProductName：")
-            data['toxicity'] = self.get_table_data("Toxicity：")
-            data['formulation'] = self.get_table_data("Formulation：")
-            data['registration_certificate_holder'] = self.get_table_data("Registration certificate holder：")
-            data['remark'] = self.get_table_data("Remark：")
+            data['registered_number'] = self.get_table_data(frame, "Registered number：")
+            data['first_prove'] = self.get_table_data(frame, "FirstProve：")
+            data['period'] = self.get_table_data(frame, "Period：")
+            data['product_name'] = self.get_table_data(frame, "ProductName：")
+            data['toxicity'] = self.get_table_data(frame, "Toxicity：")
+            data['formulation'] = self.get_table_data(frame, "Formulation：")
+            data['registration_certificate_holder'] = self.get_table_data(frame, "Registration certificate holder：")
+            data['remark'] = self.get_table_data(frame, "Remark：")
 
             active_ingredients = []
-            rows = self.driver.find_elements(By.CSS_SELECTOR, "table:nth-of-type(2) tr")
-            for row in rows[2:]:
-                cols = row.find_elements(By.TAG_NAME, "td")
+            rows = frame.locator("table:nth-of-type(2) tr").all()[2:]
+            for row in rows:
+                cols = row.locator("td").all()
                 if len(cols) == 2:
                     active_ingredients.append({
-                        "ingredient": cols[0].text.strip(),
-                        "content": cols[1].text.strip()
+                        "ingredient": cols[0].inner_text().strip(),
+                        "content": cols[1].inner_text().strip()
                     })
             data['active_ingredients'] = active_ingredients
             
-            self.driver.switch_to.default_content()
-            
-            close_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "#jbox > table > tbody > tr:nth-child(2) > td:nth-child(2) > div > a"))
-            )
-            self.driver.execute_script("arguments[0].click();", close_button)
-            
-            WebDriverWait(self.driver, 10).until(
-                EC.invisibility_of_element_located((By.CSS_SELECTOR, "#jbox-iframe"))
-            )
+            page.click("#jbox > table > tbody > tr:nth-child(2) > td:nth-child(2) > div > a")
+            page.wait_for_selector("#jbox-iframe", state="hidden")
             
             return data
         except Exception as e:
             logging.error(f"Error scraping item: {str(e)}")
             return None
 
-    def get_table_data(self, label):
+    def get_table_data(self, frame, label):
         try:
-            element = self.driver.find_element(By.XPATH, f"//td[contains(text(), '{label}')]/following-sibling::td")
-            return element.text.strip()
-        except NoSuchElementException:
+            return frame.locator(f"//td[contains(text(), '{label}')]/following-sibling::td").inner_text().strip()
+        except:
             return ""
 
-    def scrape_page(self):
+    def scrape_page(self, page):
         items_scraped = 0
         page_data = []
         for i in range(2, 22):
             link_selector = f"#tab > tbody > tr:nth-child({i}) > td.t3 > span > a"
-            try:
-                WebDriverWait(self.driver, 5).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, link_selector))
-                )
-            except TimeoutException:
+            if page.is_visible(link_selector):
+                logging.info(f"Scraping item {i-1}")
+                data = self.scrape_item(page, link_selector)
+                if data:
+                    page_data.append(data)
+                    items_scraped += 1
+                else:
+                    logging.warning(f"Failed to scrape item {i-1}")
+            else:
                 logging.info(f"No more items found after item {i-2}")
                 break
-
-            logging.info(f"Scraping item {i-1}")
-            data = self.scrape_item(link_selector)
-            if data:
-                page_data.append(data)
-                items_scraped += 1
-            else:
-                logging.warning(f"Failed to scrape item {i-1}")
         
         logging.info(f"Total items scraped on this page: {items_scraped}")
         return items_scraped, page_data
 
-    def next_page(self):
+    def next_page(self, page):
         try:
             logging.info("Attempting to navigate to the next page")
             
-            pagination = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "body > div.web_ser_body_right_main_search > div"))
-            )
-            logging.info("Pagination element found")
-            
-            next_page_links = self.driver.find_elements(By.XPATH, ".//a[contains(text(), '下一页')]")
-            if not next_page_links or "disabled" in next_page_links[0].get_attribute("class"):
+            next_page_link = page.locator("//a[contains(text(), '下一页')]").first
+            if not next_page_link or "disabled" in next_page_link.get_attribute("class"):
                 logging.info("Next page link is not available or disabled. This is the last page.")
                 return False
             
-            next_page_link = next_page_links[0]
-            logging.info("Next page link found")
-            
-            current_page = int(pagination.find_element(By.XPATH, ".//li[@class='active']/a").text)
+            current_page = int(page.locator("//li[@class='active']/a").inner_text())
             logging.info(f"Current page: {current_page}")
             
-            self.driver.execute_script("arguments[0].click();", next_page_link)
-            logging.info("Clicked next page link")
+            next_page_link.click()
+            page.wait_for_load_state('networkidle')
             
-            try:
-                WebDriverWait(self.driver, 20).until(
-                    lambda d: int(d.find_element(By.XPATH, "//li[@class='active']/a").text) > current_page
-                )
-                logging.info("Page change detected")
-                
+            new_page = int(page.locator("//li[@class='active']/a").inner_text())
+            if new_page > current_page:
                 self.current_page += 1
                 logging.info(f"Successfully moved to page {self.current_page}")
                 return True
-            except TimeoutException:
+            else:
                 logging.info("Page did not change. This might be the last page.")
                 return False
-            
-            time.sleep(5)
         
         except Exception as e:
             logging.error(f"Unexpected error in next_page function: {str(e)}")
