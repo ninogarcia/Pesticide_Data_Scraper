@@ -12,7 +12,7 @@ class CustomCrawler:
         self.current_page = 1
 
     def run(self, progress_callback=None):
-        with sync_playwright() as p:
+        with async_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             try:
