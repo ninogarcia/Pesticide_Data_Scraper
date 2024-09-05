@@ -3,10 +3,6 @@ import pandas as pd
 import asyncio
 from playwright.async_api import async_playwright
 import logging
-import os
-# Install Playwright and its dependencies
-os.system('playwright install')
-os.system('playwright install-deps')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -112,34 +108,43 @@ class CustomCrawler:
 
     async def next_page(self, page):
         try:
-            logging.info("Attempting to navigate to the next page")
+            logging.info(f"Attempting to navigate to the next page (current page: {self.current_page})")
             
-            pagination = await page.wait_for_selector("body > div.web_ser_body_right_main_search > div")
-            next_page_link = await pagination.query_selector("a:has-text('下一页')")
+            # Wait for the pagination element to be visible
+            await page.wait_for_selector("body > div.web_ser_body_right_main_search > div", state="visible", timeout=10000)
             
-            if not next_page_link or await next_page_link.get_attribute("class") == "disabled":
+            # Try to find the "下一页" (Next Page) link
+            next_page_link = await page.query_selector("a:has-text('下一页'):not(.disabled)")
+            
+            if not next_page_link:
                 logging.info("Next page link is not available or disabled. This is the last page.")
                 return False
             
-            current_page = int(await pagination.query_selector("li.active > a").inner_text())
-            logging.info(f"Current page: {current_page}")
-            
+            # Click the next page link
             await next_page_link.click()
+            
+            # Wait for the page to load
             await page.wait_for_load_state('networkidle')
             
-            new_page = int(await pagination.query_selector("li.active > a").inner_text())
-            if new_page > current_page:
-                self.current_page = new_page
-                logging.info(f"Successfully moved to page {self.current_page}")
-                return True
+            # Verify that we've moved to the next page
+            new_page_indicator = await page.query_selector("body > div.web_ser_body_right_main_search > div > ul > li.active > a")
+            if new_page_indicator:
+                new_page_num = await new_page_indicator.inner_text()
+                new_page_num = int(new_page_num)
+                if new_page_num > self.current_page:
+                    self.current_page = new_page_num
+                    logging.info(f"Successfully moved to page {self.current_page}")
+                    return True
+                else:
+                    logging.warning(f"Page number didn't increase. Still on page {self.current_page}")
+                    return False
             else:
-                logging.info("Page did not change. This might be the last page.")
+                logging.warning("Couldn't verify new page number")
                 return False
             
         except Exception as e:
             logging.error(f"Unexpected error in next_page function: {str(e)}")
             return False
-
 async def main(search_term, progress_callback=None):
     crawler = CustomCrawler(search_term)
     return await crawler.run(progress_callback)
