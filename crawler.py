@@ -14,7 +14,7 @@ class CustomCrawler:
 
     async def run(self, progress_callback=None):
         async with async_playwright() as p:
-            browser = await p.chromium.launch()
+            browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
             try:
                 await page.goto(self.base_url)
