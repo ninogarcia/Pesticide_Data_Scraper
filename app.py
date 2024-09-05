@@ -2,6 +2,27 @@
 import streamlit as st
 import pandas as pd
 import asyncio
+from playwright.async_api import async_playwright
+import subprocess
+import sys
+
+# Function to install Playwright browsers
+def install_playwright_browsers():
+    try:
+        subprocess.run([sys.executable, "-m", "playwright", "install"], check=True)
+        st.success("Playwright browsers installed successfully!")
+    except subprocess.CalledProcessError:
+        st.error("Failed to install Playwright browsers. Please try again.")
+        st.stop()
+
+# Check if Playwright browsers are installed
+try:
+    asyncio.get_event_loop().run_until_complete(async_playwright().start())
+except Exception:
+    st.warning("Playwright browsers are not installed. Installing now...")
+    install_playwright_browsers()
+
+# Now import the crawler
 from crawler import main as run_crawler
 
 st.set_page_config(page_title="Pesticide Registration Data Scraper", layout="wide")
