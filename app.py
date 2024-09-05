@@ -205,7 +205,7 @@ def streamlit_app():
                 status_text.text(message)
             
             try:
-                results = run_crawler(search_term, progress_callback=update_progress)
+                results = run_async(main(search_term, progress_callback))
                 
                 if results:
                     st.success(f"Found {len(results)} results")
