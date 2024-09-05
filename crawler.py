@@ -1,158 +1,76 @@
 # crawler.py
-import asyncio
-from playwright.async_api import async_playwright
-import logging
+import requests
+from bs4 import BeautifulSoup
+import time
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+BASE_URL = "https://www.icama.cn/BasicdataSystem/pesticideRegistrationEn/queryselect_en.do"
 
-class CustomCrawler:
-    def __init__(self, search_term):
-        self.search_term = search_term
-        self.base_url = 'https://www.icama.cn/BasicdataSystem/pesticideRegistrationEn/queryselect_en.do'
-        self.total_items_scraped = 0
-        self.current_page = 1
-
-    async def run(self, progress_callback=None):
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            try:
-                await page.goto(self.base_url)
-                await self.search_and_submit(page)
-                
-                all_data = []
-                while True:
-                    items_scraped, page_data = await self.scrape_page(page)
-                    all_data.extend(page_data)
-                    self.total_items_scraped += items_scraped
-                    
-                    if progress_callback:
-                        await progress_callback(f"Scraped page {self.current_page}, total items: {self.total_items_scraped}")
-                    
-                    if not await self.next_page(page):
-                        logging.info("No more pages. Scraping completed.")
-                        break
-                
-                logging.info(f"Total items scraped across all pages: {self.total_items_scraped}")
-                return all_data
-            except Exception as e:
-                logging.error(f"An error occurred during crawling: {str(e)}")
-                return []
-            finally:
-                await browser.close()
-
-    async def search_and_submit(self, page):
-        try:
-            await page.fill("#searchForm > div.search_table > table > tbody > tr:nth-child(3) > td.t1 > input[type=text]", self.search_term)
-            await page.click("#btnSubmit")
-            await page.wait_for_load_state('networkidle')
-        except Exception as e:
-            logging.error(f"Error in search_and_submit: {str(e)}")
-            raise
-
-    async def scrape_item(self, page, link_selector):
-        try:
-            await page.click(link_selector)
-            
-            frame = await page.wait_for_selector("#jbox-iframe")
-            frame_content = await frame.content_frame()
-            
-            data = {}
-            data['registered_number'] = await self.get_table_data(frame_content, "Registered number：")
-            data['first_prove'] = await self.get_table_data(frame_content, "FirstProve：")
-            data['period'] = await self.get_table_data(frame_content, "Period：")
-            data['product_name'] = await self.get_table_data(frame_content, "ProductName：")
-            data['toxicity'] = await self.get_table_data(frame_content, "Toxicity：")
-            data['formulation'] = await self.get_table_data(frame_content, "Formulation：")
-            data['registration_certificate_holder'] = await self.get_table_data(frame_content, "Registration certificate holder：")
-            data['remark'] = await self.get_table_data(frame_content, "Remark：")
-
-            active_ingredients = []
-            rows = await frame_content.query_selector_all("table:nth-of-type(2) tr")
-            for row in rows[2:]:
-                cols = await row.query_selector_all("td")
-                if len(cols) == 2:
-                    ingredient = await cols[0].inner_text()
-                    content = await cols[1].inner_text()
-                    active_ingredients.append({
-                        "ingredient": ingredient.strip(),
-                        "content": content.strip()
-                    })
-            data['active_ingredients'] = active_ingredients
-            
-            await page.click("#jbox > table > tbody > tr:nth-child(2) > td:nth-child(2) > div > a")
-            await page.wait_for_selector("#jbox-iframe", state="hidden")
-            
-            return data
-        except Exception as e:
-            logging.error(f"Error scraping item: {str(e)}")
-            return None
-
-    async def get_table_data(self, frame, label):
-        try:
-            element = await frame.query_selector(f"//td[contains(text(), '{label}')]/following-sibling::td")
-            return await element.inner_text()
-        except:
-            return ""
-
-    async def scrape_page(self, page):
-        items_scraped = 0
-        page_data = []
-        for i in range(2, 22):
-            link_selector = f"#tab > tbody > tr:nth-child({i}) > td.t3 > span > a"
-            try:
-                await page.wait_for_selector(link_selector, timeout=5000)
-            except:
-                logging.info(f"No more items found after item {i-2}")
-                break
-
-            logging.info(f"Scraping item {i-1}")
-            data = await self.scrape_item(page, link_selector)
-            if data:
-                page_data.append(data)
-                items_scraped += 1
-            else:
-                logging.warning(f"Failed to scrape item {i-1}")
+def scrape_data(search_term, progress_callback=None):
+    session = requests.Session()
+    
+    # Initial request to get cookies
+    session.get(BASE_URL)
+    
+    # Prepare the search payload
+    payload = {
+        "method": "queryList",
+        "isproduct": "1",
+        "isactive": "2",
+        "activeEnameInput": search_term,
+        "pageSize": "20",
+        "currentPage": "1"
+    }
+    
+    results = []
+    current_page = 1
+    total_pages = 1
+    
+    while current_page <= total_pages:
+        if progress_callback:
+            progress_callback(f"Scraping page {current_page} of {total_pages}", current_page / total_pages)
         
-        logging.info(f"Total items scraped on this page: {items_scraped}")
-        return items_scraped, page_data
-
-    async def next_page(self, page):
-        try:
-            logging.info("Attempting to navigate to the next page")
-            
-            pagination = await page.query_selector("body > div.web_ser_body_right_main_search > div")
-            if not pagination:
-                logging.info("Pagination element not found")
-                return False
-            
-            next_page_link = await pagination.query_selector("a:text('下一页')")
-            if not next_page_link or await next_page_link.get_attribute("class") == "disabled":
-                logging.info("Next page link is not available or disabled. This is the last page.")
-                return False
-            
-            current_page = int(await (await pagination.query_selector("li.active > a")).inner_text())
-            logging.info(f"Current page: {current_page}")
-            
-            await next_page_link.click()
-            await page.wait_for_load_state('networkidle')
-            
-            new_page = int(await (await pagination.query_selector("li.active > a")).inner_text())
-            if new_page > current_page:
-                self.current_page = new_page
-                logging.info(f"Successfully moved to page {self.current_page}")
-                return True
-            else:
-                logging.info("Page did not change. This might be the last page.")
-                return False
+        payload["currentPage"] = str(current_page)
+        response = session.post(BASE_URL, data=payload)
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        except Exception as e:
-            logging.error(f"Unexpected error in next_page function: {str(e)}")
-            return False
-
-async def main(search_term, progress_callback=None):
-    crawler = CustomCrawler(search_term)
-    return await crawler.run(progress_callback)
-
-if __name__ == "__main__":
-    asyncio.run(main('Dimethoate'))
+        # Update total pages
+        if current_page == 1:
+            pagination = soup.find('div', class_='pagination')
+            if pagination:
+                total_pages = int(pagination.find_all('a')[-2].text)
+        
+        # Extract data from the current page
+        rows = soup.find_all('tr', class_=['listfirstTr', 'listSecondTr'])
+        for row in rows:
+            cols = row.find_all('td')
+            if len(cols) >= 9:
+                item = {
+                    'registered_number': cols[0].text.strip(),
+                    'product_name': cols[1].text.strip(),
+                    'active_ingredients': [],
+                    'toxicity': cols[3].text.strip(),
+                    'formulation': cols[4].text.strip(),
+                    'registration_certificate_holder': cols[5].text.strip(),
+                    'first_prove': cols[6].text.strip(),
+                    'period': cols[7].text.strip(),
+                    'remark': cols[8].text.strip()
+                }
+                
+                # Parse active ingredients
+                ai_text = cols[2].text.strip()
+                ai_parts = ai_text.split(';')
+                for part in ai_parts:
+                    if '(' in part and ')' in part:
+                        ingredient, content = part.split('(')
+                        content = content.rstrip(')')
+                        item['active_ingredients'].append({
+                            'ingredient': ingredient.strip(),
+                            'content': content.strip()
+                        })
+                
+                results.append(item)
+        
+        current_page += 1
+        time.sleep(1)  # Be nice to the server
+    
+    return results
