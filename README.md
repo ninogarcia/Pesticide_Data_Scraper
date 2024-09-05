@@ -33,7 +33,7 @@ Created by: Niño Garcia
 
 1. Clone this repository:
    ```
-   git clone https://github.com/your-username/pesticide-registration-scraper.git
+   git clone https://github.com/ninogarcia/pesticide-registration-scraper.git
    cd pesticide-registration-scraper
    ```
 
