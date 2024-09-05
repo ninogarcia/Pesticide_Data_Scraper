@@ -1,5 +1,3 @@
-can you fix the # Streamlit app part of the code:
-
 import streamlit as st
 import pandas as pd
 from crawler import main as run_crawler
