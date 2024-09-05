@@ -1,6 +1,12 @@
 import streamlit as st
 import pandas as pd
 from crawler import main as run_crawler
+import os
+import subprocess
+
+# Install Playwright and its dependencies
+os.system('playwright install')
+os.system('playwright install-deps')
 
 st.set_page_config(page_title="Pesticide Registration Data Scraper", layout="wide")
 
